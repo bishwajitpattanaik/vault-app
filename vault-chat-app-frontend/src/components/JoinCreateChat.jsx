@@ -93,7 +93,7 @@ const JoinCreateChat = () => {
             </div>
             
             <h1 className="text-2xl font-semibold text-center">
-                Join Room Or Create Room
+                Vault by Bishwajit Pattanaik
             </h1>
             {/* Name div */}
             <div className="">
