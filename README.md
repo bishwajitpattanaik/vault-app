@@ -12,7 +12,8 @@ Introducing Vault: A secure real-time room-based communication platform that all
 
 <b>Home Page UI:</b>
 
-![image](https://github.com/user-attachments/assets/c2cf7f17-add7-4324-801d-54694a368efc)
+![image](https://github.com/user-attachments/assets/9949ccd7-34eb-47a0-b495-433df3b526e8)
+
 
 <b>Chat Room Page UI</b>
 
