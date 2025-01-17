@@ -1,3 +1,5 @@
+This project titled "Vault: A Real-Time Communication Platform using React and Spring Boot" is created by <b>Bishwajit Pattanaik<b>.
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
