@@ -1,24 +1,27 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Maven build output
+target/
+*.class
 
-node_modules
-dist
-dist-ssr
-*.local
+# Maven wrapper (optional — keep if you want others to build without Maven installed)
+# .mvn/
+# mvnw
+# mvnw.cmd
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
+# Environment / secrets
+.env
+application-local.properties
+application-secret.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
