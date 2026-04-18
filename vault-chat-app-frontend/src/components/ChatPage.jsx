@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { use } from 'react';
-import { MdAttachFile, MdSend } from 'react-icons/md'
+import { MdAttachFile, MdSend, MdLogout } from 'react-icons/md'
 import useChatContext from "../context/ChatContext"
 import { useNavigate } from "react-router";
 import SockJS from "sockjs-client";
@@ -10,216 +9,508 @@ import { baseURL } from "../config/AxiosHelper";
 import { getMessages } from "../services/RoomService";
 
 const ChatPage = () => {
-
-    const {
-        roomId,
-        currentUser,
-        connected,
-        setConnected,
-        setRoomId,
-        setCurrentUser,
-      } = useChatContext();
-      //console.log(roomId);
-      //console.log(currentUser);
-      //console.log(connected);
-    
-    
+    const { roomId, currentUser, connected, setConnected, setRoomId, setCurrentUser } = useChatContext();
     const navigate = useNavigate();
+
     useEffect(() => {
-        if (!connected) {
-          navigate("/");
+        if (!connected) navigate("/");
+    }, [connected, roomId, currentUser]);
+
+    const [messages, setMessages] = useState([]);
+    const [input, setInput] = useState("");
+    const chatBoxRef = useRef(null);
+    const [stompClient, setStompClient] = useState(null);
+
+    useEffect(() => {
+        async function loadMessages() {
+            try {
+                const msgs = await getMessages(roomId);
+                setMessages(msgs);
+            } catch (error) {}
         }
-      }, [connected, roomId, currentUser]);
-
-
-
-    const[messages, setMessages] = useState([])
-    const[input, setInput] = useState([])
-    const inputRef = useRef(null)
-    const chatBoxRef = useRef(null)
-    const [stompClient, setStompClient] = useState(null)
-    
-    //page init:
-    //messages ko load karne honge
+        if (connected) loadMessages();
+    }, []);
 
     useEffect(() => {
-    async function loadMessages() {
-      try {
-        const messages = await getMessages(roomId);
-        // console.log(messages);
-        setMessages(messages);
-      } catch (error) {}
-    }
-    if (connected) {
-      loadMessages();
-    }
-  }, []);
+        if (chatBoxRef.current) {
+            chatBoxRef.current.scroll({ top: chatBoxRef.current.scrollHeight, behavior: "smooth" });
+        }
+    }, [messages]);
 
-  //scroll down
+    useEffect(() => {
+        const connectWebSocket = () => {
+            const sock = new SockJS(`${baseURL}/chat`);
+            const client = Stomp.over(sock);
+            client.connect({}, () => {
+                setStompClient(client);
+                toast.success("connected");
+                client.subscribe(`/topic/room/${roomId}`, (message) => {
+                    const newMessage = JSON.parse(message.body);
+                    setMessages((prev) => [...prev, newMessage]);
+                });
+            });
+        };
+        if (connected) connectWebSocket();
+    }, [roomId]);
 
-  useEffect(() => {
-    if (chatBoxRef.current) {
-      chatBoxRef.current.scroll({
-        top: chatBoxRef.current.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-  }, [messages]);
-
-  //stompClient ko init karne honge
-  //subscribe
-
-  useEffect(() => {
-    const connectWebSocket = () => {
-      ///SockJS
-      const sock = new SockJS(`${baseURL}/chat`);
-      const client = Stomp.over(sock);
-
-      client.connect({}, () => {
-        setStompClient(client);
-
-        toast.success("connected");
-
-        client.subscribe(`/topic/room/${roomId}`, (message) => {
-          console.log(message);
-
-          const newMessage = JSON.parse(message.body);
-
-          setMessages((prev) => [...prev, newMessage]);
-
-          //rest of the work after success receiving the message
-        });
-      });
+    const sendMessage = async () => {
+        if (stompClient && connected && input.trim()) {
+            const message = { sender: currentUser, content: input, roomId };
+            stompClient.send(`/app/sendMessage/${roomId}`, {}, JSON.stringify(message));
+            setInput("");
+        }
     };
 
-    if (connected) {
-      connectWebSocket();
+    function handleLogout() {
+        stompClient?.disconnect();
+        setConnected(false);
+        setRoomId("");
+        setCurrentUser("");
+        navigate("/");
     }
 
-    //stomp client
-  }, [roomId]);
-
-  //send message handle
-
-  const sendMessage = async () => {
-    if (stompClient && connected && input.trim()) {
-      console.log(input);
-
-      const message = {
-        sender: currentUser,
-        content: input,
-        roomId: roomId,
-      };
-
-      stompClient.send(`/app/sendMessage/${roomId}`, {}, JSON.stringify(message));
-      setInput("");
+    function getInitial(name) {
+        return name ? name.charAt(0).toUpperCase() : "?";
     }
 
-    //
-  };
+    return (
+        <>
+            <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
-  function handleLogout() {
-    stompClient.disconnect();
-    setConnected(false);
-    setRoomId("");
-    setCurrentUser("");
-    navigate("/");
-  }
-    
+                *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  return (
-    <div className="">
+                .cp-root {
+                    height: 100vh;
+                    display: flex;
+                    flex-direction: column;
+                    font-family: 'Outfit', sans-serif;
+                    background: #0f1117;
+                    overflow: hidden;
+                    position: relative;
+                }
 
-        {/*Header*/}
-        <header className="dark:border-gray-700 fixed w-full dark:bg-gray-900 py-5 shadow flex justify-around items-center">
+                /* Background blobs */
+                .cp-blob {
+                    position: fixed;
+                    border-radius: 50%;
+                    filter: blur(100px);
+                    pointer-events: none;
+                    z-index: 0;
+                    opacity: 0.2;
+                }
+                .cp-blob-1 {
+                    width: 500px; height: 500px;
+                    background: radial-gradient(circle, #f97316, transparent 70%);
+                    top: -150px; right: -100px;
+                }
+                .cp-blob-2 {
+                    width: 450px; height: 450px;
+                    background: radial-gradient(circle, #22c55e, transparent 70%);
+                    bottom: -100px; left: -100px;
+                }
+                .cp-blob-3 {
+                    width: 350px; height: 350px;
+                    background: radial-gradient(circle, #3b82f6, transparent 70%);
+                    top: 50%; left: 35%;
+                    opacity: 0.1;
+                }
 
-            {/*Room Name Container*/}
-            <div>
-                <h1 className="text-2xl font-semibold">
-                    Room: <span>{roomId}</span>
-                </h1>
-            </div>
-            
-            {/*User Name Container*/}
-            <div>
-                <h1 className="text-2xl font-semibold">
-                    User: <span>{currentUser}</span>
-                </h1>
-            </div>
+                /* HEADER */
+                .cp-header {
+                    position: relative;
+                    z-index: 10;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 0 24px;
+                    height: 64px;
+                    background: rgba(255, 255, 255, 0.03);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+                    backdrop-filter: blur(20px);
+                    -webkit-backdrop-filter: blur(20px);
+                    flex-shrink: 0;
+                }
 
-            {/*button: leave room*/}
-            <div>
-                <button onClick={handleLogout} className="dark:bg-red-500 dark:hover:bg-red-700 px-3 py-2 rounded-lg">Leave Room</button>
-            </div>
+                .cp-header-left {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                }
 
-        </header>
+                .cp-header-dot {
+                    width: 8px; height: 8px;
+                    background: #22c55e;
+                    border-radius: 50%;
+                    box-shadow: 0 0 10px rgba(34,197,94,0.7);
+                    animation: blink 2s infinite;
+                }
 
-        <main ref={chatBoxRef} className="py-20 px-10 w-full dark:bg-slate-600 mx-auto h-screen overflow-auto">
-        
-            {      
-                messages.map((message, index) =>(
-                    <div key={index}
-                         className={`flex ${
-                            message.sender == currentUser ? "justify-end":"justify-start"
-                         } `}
-                    >
-                        <div className={`my-2 ${message.sender === currentUser ? "bg-orange-600" : "bg-green-600"} p-2 max-w-xs rounded`}>
-                            <div className="flex flex-row gap-2">
+                @keyframes blink {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.4; }
+                }
 
-                                <img className="h-10 w-10" src={'https://avatar.iran.liara.run/public/boy'} alt=""></img>
+                .cp-header-title {
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: #f1f5f9;
+                }
 
-                                <div className="flex flex-col gap-1">
+                .cp-header-badge {
+                    padding: 4px 12px;
+                    background: rgba(255,255,255,0.06);
+                    border: 1px solid rgba(255,255,255,0.09);
+                    border-radius: 20px;
+                    font-size: 12px;
+                    color: rgba(255,255,255,0.45);
+                    font-weight: 400;
+                }
 
-                                    <p className="text-sm font-bold">{message.sender}</p>
-                                    <p>{message.content}</p>
+                .cp-header-badge span {
+                    color: rgba(255,255,255,0.75);
+                    font-weight: 500;
+                }
 
-                                </div>
+                .cp-header-right {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                }
 
-                            </div>
+                .cp-user-badge {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 5px 14px 5px 5px;
+                    background: rgba(255,255,255,0.05);
+                    border: 1px solid rgba(255,255,255,0.08);
+                    border-radius: 20px;
+                }
+
+                .cp-user-avatar {
+                    width: 26px; height: 26px;
+                    background: rgba(249, 115, 22, 0.25);
+                    border: 1px solid rgba(249, 115, 22, 0.4);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: #fb923c;
+                }
+
+                .cp-user-name {
+                    font-size: 13px;
+                    color: rgba(255,255,255,0.6);
+                    font-weight: 400;
+                }
+
+                .cp-leave-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 8px 14px;
+                    background: rgba(239, 68, 68, 0.1);
+                    border: 1px solid rgba(239, 68, 68, 0.25);
+                    border-radius: 10px;
+                    color: #f87171;
+                    font-family: 'Outfit', sans-serif;
+                    font-size: 13px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+
+                .cp-leave-btn:hover {
+                    background: rgba(239, 68, 68, 0.18);
+                    border-color: rgba(239, 68, 68, 0.45);
+                    color: #fca5a5;
+                }
+
+                /* MESSAGES */
+                .cp-messages {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding: 24px 24px 16px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    position: relative;
+                    z-index: 1;
+                }
+
+                .cp-messages::-webkit-scrollbar { width: 4px; }
+                .cp-messages::-webkit-scrollbar-track { background: transparent; }
+                .cp-messages::-webkit-scrollbar-thumb {
+                    background: rgba(255,255,255,0.08);
+                    border-radius: 4px;
+                }
+
+                /* Empty */
+                .cp-empty {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 12px;
+                    color: rgba(255,255,255,0.2);
+                    font-size: 13px;
+                    font-weight: 300;
+                }
+
+                .cp-empty-icon {
+                    font-size: 32px;
+                    opacity: 0.4;
+                }
+
+                /* Message row */
+                .cp-msg-row {
+                    display: flex;
+                    align-items: flex-end;
+                    gap: 10px;
+                    animation: msgIn 0.22s ease both;
+                }
+
+                .cp-msg-row.mine { flex-direction: row-reverse; }
+
+                @keyframes msgIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to   { opacity: 1; transform: translateY(0); }
+                }
+
+                .cp-avatar {
+                    width: 32px; height: 32px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 13px;
+                    font-weight: 600;
+                    flex-shrink: 0;
+                }
+
+                .cp-avatar.theirs {
+                    background: rgba(34, 197, 94, 0.15);
+                    border: 1px solid rgba(34, 197, 94, 0.3);
+                    color: #4ade80;
+                }
+
+                .cp-avatar.mine {
+                    background: rgba(249, 115, 22, 0.15);
+                    border: 1px solid rgba(249, 115, 22, 0.3);
+                    color: #fb923c;
+                }
+
+                .cp-bubble-wrap {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    max-width: 58%;
+                }
+
+                .cp-msg-row.mine .cp-bubble-wrap { align-items: flex-end; }
+
+                .cp-sender {
+                    font-size: 11px;
+                    font-weight: 500;
+                    color: rgba(255,255,255,0.3);
+                    padding: 0 6px;
+                }
+
+                /* Bubbles — keeping original orange / green colors, now glassy */
+                .cp-bubble {
+                    padding: 10px 16px;
+                    font-size: 14px;
+                    line-height: 1.55;
+                    word-break: break-word;
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                }
+
+                .cp-bubble.theirs {
+                    background: rgba(34, 197, 94, 0.12);
+                    border: 1px solid rgba(34, 197, 94, 0.2);
+                    color: #d1fae5;
+                    border-radius: 4px 18px 18px 18px;
+                }
+
+                .cp-bubble.mine {
+                    background: rgba(249, 115, 22, 0.15);
+                    border: 1px solid rgba(249, 115, 22, 0.25);
+                    color: #ffedd5;
+                    border-radius: 18px 4px 18px 18px;
+                }
+
+                /* INPUT BAR */
+                .cp-input-bar {
+                    position: relative;
+                    z-index: 10;
+                    padding: 14px 20px;
+                    background: rgba(255, 255, 255, 0.03);
+                    border-top: 1px solid rgba(255, 255, 255, 0.07);
+                    backdrop-filter: blur(20px);
+                    -webkit-backdrop-filter: blur(20px);
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex-shrink: 0;
+                }
+
+                .cp-attach-btn {
+                    width: 42px; height: 42px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: rgba(255,255,255,0.05);
+                    border: 1px solid rgba(255,255,255,0.09);
+                    border-radius: 12px;
+                    color: rgba(255,255,255,0.35);
+                    cursor: pointer;
+                    transition: all 0.18s ease;
+                    flex-shrink: 0;
+                }
+
+                .cp-attach-btn:hover {
+                    background: rgba(255,255,255,0.09);
+                    color: rgba(255,255,255,0.6);
+                }
+
+                .cp-input-wrap {
+                    flex: 1;
+                    display: flex;
+                    align-items: center;
+                    background: rgba(255,255,255,0.05);
+                    border: 1px solid rgba(255,255,255,0.09);
+                    border-radius: 14px;
+                    padding: 0 18px;
+                    transition: all 0.2s ease;
+                }
+
+                .cp-input-wrap:focus-within {
+                    border-color: rgba(249, 115, 22, 0.35);
+                    background: rgba(249, 115, 22, 0.04);
+                    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.06);
+                }
+
+                .cp-input {
+                    flex: 1;
+                    background: transparent;
+                    border: none;
+                    outline: none;
+                    padding: 13px 0;
+                    font-family: 'Outfit', sans-serif;
+                    font-size: 14px;
+                    color: #f1f5f9;
+                    font-weight: 400;
+                }
+
+                .cp-input::placeholder { color: rgba(255,255,255,0.2); }
+
+                .cp-send-btn {
+                    width: 42px; height: 42px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: rgba(34, 197, 94, 0.2);
+                    border: 1px solid rgba(34, 197, 94, 0.35);
+                    border-radius: 12px;
+                    color: #4ade80;
+                    cursor: pointer;
+                    transition: all 0.18s ease;
+                    flex-shrink: 0;
+                }
+
+                .cp-send-btn:hover {
+                    background: rgba(34, 197, 94, 0.3);
+                    border-color: rgba(34, 197, 94, 0.55);
+                    box-shadow: 0 0 18px rgba(34, 197, 94, 0.2);
+                    color: #86efac;
+                }
+
+                .cp-send-btn:active { transform: scale(0.95); }
+            `}</style>
+
+            <div className="cp-root">
+                <div className="cp-blob cp-blob-1" />
+                <div className="cp-blob cp-blob-2" />
+                <div className="cp-blob cp-blob-3" />
+
+                {/* Header */}
+                <header className="cp-header">
+                    <div className="cp-header-left">
+                        <div className="cp-header-dot" />
+                        <span className="cp-header-title">Vault</span>
+                        <div className="cp-header-badge">
+                            Room: <span>{roomId}</span>
                         </div>
                     </div>
-                ))
-            }
-        
-        </main>
 
+                    <div className="cp-header-right">
+                        <div className="cp-user-badge">
+                            <div className="cp-user-avatar">{getInitial(currentUser)}</div>
+                            <span className="cp-user-name">{currentUser}</span>
+                        </div>
+                        <button className="cp-leave-btn" onClick={handleLogout}>
+                            <MdLogout size={15} />
+                            Leave
+                        </button>
+                    </div>
+                </header>
 
-        {/*Input Message Container*/}
-        <div className="fixed bottom-4 w-full h-16">
-            <div className="h-full pr-10 gap-2 flex items-center justify-between rounded-full w-1/2 mx-auto dark:bg-gray-900">
-            <input
-                value={input}
-                onChange={(e) => {
-                    setInput(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                    sendMessage();
-                    }
-                }}
-                type="text"
-                placeholder="Type your message here..."
-                className="dark:border-gray-600 w-full dark:bg-gray-800 px-5 py-2 rounded-full h-full focus:outline-none"
-            />
-                
-                <div className="flex gap-1">
-                    
-                    <button className="dark:bg-purple-600 h-10 w-10 flex justify-center items-center rounded-full">
-                        <MdAttachFile size={20} />
+                {/* Messages */}
+                <div className="cp-messages" ref={chatBoxRef}>
+                    {messages.length === 0 ? (
+                        <div className="cp-empty">
+                            <div className="cp-empty-icon">💬</div>
+                            <span>No messages yet — say hello!</span>
+                        </div>
+                    ) : (
+                        messages.map((message, index) => {
+                            const isMine = message.sender === currentUser;
+                            return (
+                                <div key={index} className={`cp-msg-row ${isMine ? "mine" : ""}`}>
+                                    <div className={`cp-avatar ${isMine ? "mine" : "theirs"}`}>
+                                        {getInitial(message.sender)}
+                                    </div>
+                                    <div className="cp-bubble-wrap">
+                                        <span className="cp-sender">{message.sender}</span>
+                                        <div className={`cp-bubble ${isMine ? "mine" : "theirs"}`}>
+                                            {message.content}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+
+                {/* Input bar */}
+                <div className="cp-input-bar">
+                    <button className="cp-attach-btn">
+                        <MdAttachFile size={18} />
                     </button>
-                    
-                    <button onClick={sendMessage} className="dark:bg-green-600 h-10 w-10 flex justify-center items-center rounded-full">
-                        <MdSend size={20} />
-                    </button>
 
+                    <div className="cp-input-wrap">
+                        <input
+                            className="cp-input"
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                            placeholder="Type your message here..."
+                        />
+                    </div>
+
+                    <button className="cp-send-btn" onClick={sendMessage}>
+                        <MdSend size={18} />
+                    </button>
                 </div>
             </div>
+        </>
+    );
+};
 
-        </div>
-
-    </div>
-  )
-}
-
-export default ChatPage
-
+export default ChatPage;
