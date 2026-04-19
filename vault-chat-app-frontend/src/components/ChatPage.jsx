@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { MdAttachFile, MdSend, MdLogout } from 'react-icons/md'
+import { MdAttachFile, MdSend } from 'react-icons/md'
+import { IoExitOutline } from 'react-icons/io5'
 import useChatContext from "../context/ChatContext"
 import { useNavigate } from "react-router";
 import SockJS from "sockjs-client";
@@ -8,75 +9,106 @@ import toast from "react-hot-toast";
 import { baseURL } from "../config/AxiosHelper";
 import { getMessages } from "../services/RoomService";
 
+// Deterministic color from name
+const AVATAR_COLORS = [
+    ['#f97316','#7c2d12'], ['#22c55e','#14532d'], ['#3b82f6','#1e3a5f'],
+    ['#a855f7','#581c87'], ['#ec4899','#831843'], ['#14b8a6','#134e4a'],
+    ['#f59e0b','#78350f'], ['#06b6d4','#164e63'],
+];
+
+function getAvatarMeta(name) {
+    if (!name) return { initials: '?', bg: '#374151', text: '#9ca3af' };
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    const [bg, text] = AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+    const parts = name.trim().split(' ');
+    const initials = parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        : name.slice(0, 2).toUpperCase();
+    return { initials, bg, text };
+}
+
+function formatTime(ts) {
+    if (!ts) return '';
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 const ChatPage = () => {
     const { roomId, currentUser, connected, setConnected, setRoomId, setCurrentUser } = useChatContext();
     const navigate = useNavigate();
 
     useEffect(() => {
         if (!connected) navigate("/");
-    }, [connected, roomId, currentUser]);
+    }, [connected]);
 
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState("");
-    const chatBoxRef = useRef(null);
     const [stompClient, setStompClient] = useState(null);
+    const [isTyping, setIsTyping] = useState(false);
+    const chatBoxRef = useRef(null);
+    const inputRef = useRef(null);
 
     useEffect(() => {
-        async function loadMessages() {
-            try {
-                const msgs = await getMessages(roomId);
-                setMessages(msgs);
-            } catch (error) {}
+        if (connected) {
+            getMessages(roomId).then(setMessages).catch(() => {});
         }
-        if (connected) loadMessages();
     }, []);
 
     useEffect(() => {
         if (chatBoxRef.current) {
-            chatBoxRef.current.scroll({ top: chatBoxRef.current.scrollHeight, behavior: "smooth" });
+            chatBoxRef.current.scrollTo({ top: chatBoxRef.current.scrollHeight, behavior: 'smooth' });
         }
     }, [messages]);
 
     useEffect(() => {
-        const connectWebSocket = () => {
-            const sock = new SockJS(`${baseURL}/chat`);
-            const client = Stomp.over(sock);
-            client.connect({}, () => {
-                setStompClient(client);
-                toast.success("connected");
-                client.subscribe(`/topic/room/${roomId}`, (message) => {
-                    const newMessage = JSON.parse(message.body);
-                    setMessages((prev) => [...prev, newMessage]);
-                });
+        if (!connected) return;
+        const sock = new SockJS(`${baseURL}/chat`);
+        const client = Stomp.over(sock);
+        client.connect({}, () => {
+            setStompClient(client);
+            toast.success("Connected!");
+            client.subscribe(`/topic/room/${roomId}`, (msg) => {
+                setMessages(prev => [...prev, JSON.parse(msg.body)]);
             });
-        };
-        if (connected) connectWebSocket();
+        });
     }, [roomId]);
 
-    const sendMessage = async () => {
+    const sendMessage = () => {
         if (stompClient && connected && input.trim()) {
-            const message = { sender: currentUser, content: input, roomId };
-            stompClient.send(`/app/sendMessage/${roomId}`, {}, JSON.stringify(message));
+            stompClient.send(`/app/sendMessage/${roomId}`, {}, JSON.stringify({
+                sender: currentUser, content: input, roomId
+            }));
             setInput("");
+            inputRef.current?.focus();
         }
     };
 
     function handleLogout() {
         stompClient?.disconnect();
-        setConnected(false);
-        setRoomId("");
-        setCurrentUser("");
+        setConnected(false); setRoomId(""); setCurrentUser("");
         navigate("/");
     }
 
-    function getInitial(name) {
-        return name ? name.charAt(0).toUpperCase() : "?";
+    // Group consecutive messages by same sender
+    function groupMessages(msgs) {
+        const groups = [];
+        msgs.forEach((msg, i) => {
+            const prev = msgs[i - 1];
+            if (prev && prev.sender === msg.sender) {
+                groups[groups.length - 1].messages.push(msg);
+            } else {
+                groups.push({ sender: msg.sender, messages: [msg] });
+            }
+        });
+        return groups;
     }
+
+    const grouped = groupMessages(messages);
 
     return (
         <>
             <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
                 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -84,92 +116,68 @@ const ChatPage = () => {
                     height: 100vh;
                     display: flex;
                     flex-direction: column;
-                    font-family: 'Outfit', sans-serif;
-                    background: #0f1117;
+                    background: #111827;
+                    font-family: 'Inter', sans-serif;
                     overflow: hidden;
-                    position: relative;
                 }
 
-                /* Background blobs */
-                .cp-blob {
-                    position: fixed;
-                    border-radius: 50%;
-                    filter: blur(100px);
-                    pointer-events: none;
-                    z-index: 0;
-                    opacity: 0.2;
-                }
-                .cp-blob-1 {
-                    width: 500px; height: 500px;
-                    background: radial-gradient(circle, #f97316, transparent 70%);
-                    top: -150px; right: -100px;
-                }
-                .cp-blob-2 {
-                    width: 450px; height: 450px;
-                    background: radial-gradient(circle, #22c55e, transparent 70%);
-                    bottom: -100px; left: -100px;
-                }
-                .cp-blob-3 {
-                    width: 350px; height: 350px;
-                    background: radial-gradient(circle, #3b82f6, transparent 70%);
-                    top: 50%; left: 35%;
-                    opacity: 0.1;
-                }
-
-                /* HEADER */
+                /* ── HEADER ── */
                 .cp-header {
-                    position: relative;
-                    z-index: 10;
+                    height: 62px;
+                    flex-shrink: 0;
+                    background: #1f2937;
+                    border-bottom: 1px solid #374151;
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    padding: 0 24px;
-                    height: 64px;
-                    background: rgba(255, 255, 255, 0.03);
-                    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-                    backdrop-filter: blur(20px);
-                    -webkit-backdrop-filter: blur(20px);
-                    flex-shrink: 0;
+                    padding: 0 20px;
+                    z-index: 10;
                 }
 
                 .cp-header-left {
                     display: flex;
                     align-items: center;
-                    gap: 10px;
+                    gap: 14px;
                 }
 
-                .cp-header-dot {
-                    width: 8px; height: 8px;
-                    background: #22c55e;
-                    border-radius: 50%;
-                    box-shadow: 0 0 10px rgba(34,197,94,0.7);
-                    animation: blink 2s infinite;
-                }
-
-                @keyframes blink {
-                    0%, 100% { opacity: 1; }
-                    50% { opacity: 0.4; }
-                }
-
-                .cp-header-title {
+                .cp-header-avatar {
+                    width: 36px; height: 36px;
+                    background: linear-gradient(135deg, #22c55e, #16a34a);
+                    border-radius: 10px;
+                    display: flex; align-items: center; justify-content: center;
                     font-size: 16px;
-                    font-weight: 600;
-                    color: #f1f5f9;
+                    flex-shrink: 0;
                 }
 
-                .cp-header-badge {
-                    padding: 4px 12px;
-                    background: rgba(255,255,255,0.06);
-                    border: 1px solid rgba(255,255,255,0.09);
-                    border-radius: 20px;
-                    font-size: 12px;
-                    color: rgba(255,255,255,0.45);
+                .cp-room-info { display: flex; flex-direction: column; gap: 2px; }
+
+                .cp-room-name {
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: #f9fafb;
+                    letter-spacing: -0.2px;
+                }
+
+                .cp-room-status {
+                    display: flex;
+                    align-items: center;
+                    gap: 5px;
+                    font-size: 11.5px;
+                    color: #6b7280;
                     font-weight: 400;
                 }
 
-                .cp-header-badge span {
-                    color: rgba(255,255,255,0.75);
-                    font-weight: 500;
+                .cp-online-dot {
+                    width: 7px; height: 7px;
+                    background: #22c55e;
+                    border-radius: 50%;
+                    box-shadow: 0 0 6px rgba(34,197,94,0.7);
+                    animation: pulse 2s infinite;
+                }
+
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.4; }
                 }
 
                 .cp-header-right {
@@ -178,221 +186,220 @@ const ChatPage = () => {
                     gap: 12px;
                 }
 
-                .cp-user-badge {
+                .cp-user-chip {
                     display: flex;
                     align-items: center;
                     gap: 8px;
-                    padding: 5px 14px 5px 5px;
-                    background: rgba(255,255,255,0.05);
-                    border: 1px solid rgba(255,255,255,0.08);
+                    background: #111827;
+                    border: 1px solid #374151;
                     border-radius: 20px;
+                    padding: 4px 12px 4px 4px;
                 }
 
-                .cp-user-avatar {
+                .cp-user-chip-avatar {
                     width: 26px; height: 26px;
-                    background: rgba(249, 115, 22, 0.25);
-                    border: 1px solid rgba(249, 115, 22, 0.4);
                     border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 12px;
-                    font-weight: 600;
-                    color: #fb923c;
+                    display: flex; align-items: center; justify-content: center;
+                    font-size: 11px; font-weight: 700;
+                    border: 1.5px solid #f97316;
+                    flex-shrink: 0;
                 }
 
-                .cp-user-name {
+                .cp-user-chip-name {
                     font-size: 13px;
-                    color: rgba(255,255,255,0.6);
-                    font-weight: 400;
+                    font-weight: 500;
+                    color: #d1d5db;
                 }
 
                 .cp-leave-btn {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
+                    display: flex; align-items: center; gap: 6px;
                     padding: 8px 14px;
-                    background: rgba(239, 68, 68, 0.1);
-                    border: 1px solid rgba(239, 68, 68, 0.25);
+                    background: rgba(239,68,68,0.1);
+                    border: 1px solid rgba(239,68,68,0.3);
                     border-radius: 10px;
                     color: #f87171;
-                    font-family: 'Outfit', sans-serif;
+                    font-family: 'Inter', sans-serif;
                     font-size: 13px;
                     font-weight: 500;
                     cursor: pointer;
-                    transition: all 0.2s ease;
+                    transition: all 0.18s;
                 }
 
                 .cp-leave-btn:hover {
-                    background: rgba(239, 68, 68, 0.18);
-                    border-color: rgba(239, 68, 68, 0.45);
+                    background: rgba(239,68,68,0.18);
+                    border-color: rgba(239,68,68,0.5);
                     color: #fca5a5;
                 }
 
-                /* MESSAGES */
+                /* ── MESSAGES ── */
                 .cp-messages {
                     flex: 1;
                     overflow-y: auto;
-                    padding: 24px 24px 16px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 12px;
-                    position: relative;
-                    z-index: 1;
-                }
-
-                .cp-messages::-webkit-scrollbar { width: 4px; }
-                .cp-messages::-webkit-scrollbar-track { background: transparent; }
-                .cp-messages::-webkit-scrollbar-thumb {
-                    background: rgba(255,255,255,0.08);
-                    border-radius: 4px;
-                }
-
-                /* Empty */
-                .cp-empty {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 12px;
-                    color: rgba(255,255,255,0.2);
-                    font-size: 13px;
-                    font-weight: 300;
-                }
-
-                .cp-empty-icon {
-                    font-size: 32px;
-                    opacity: 0.4;
-                }
-
-                /* Message row */
-                .cp-msg-row {
-                    display: flex;
-                    align-items: flex-end;
-                    gap: 10px;
-                    animation: msgIn 0.22s ease both;
-                }
-
-                .cp-msg-row.mine { flex-direction: row-reverse; }
-
-                @keyframes msgIn {
-                    from { opacity: 0; transform: translateY(10px); }
-                    to   { opacity: 1; transform: translateY(0); }
-                }
-
-                .cp-avatar {
-                    width: 32px; height: 32px;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 13px;
-                    font-weight: 600;
-                    flex-shrink: 0;
-                }
-
-                .cp-avatar.theirs {
-                    background: rgba(34, 197, 94, 0.15);
-                    border: 1px solid rgba(34, 197, 94, 0.3);
-                    color: #4ade80;
-                }
-
-                .cp-avatar.mine {
-                    background: rgba(249, 115, 22, 0.15);
-                    border: 1px solid rgba(249, 115, 22, 0.3);
-                    color: #fb923c;
-                }
-
-                .cp-bubble-wrap {
+                    padding: 20px 20px 12px;
                     display: flex;
                     flex-direction: column;
                     gap: 4px;
-                    max-width: 58%;
+                    scroll-behavior: smooth;
                 }
 
-                .cp-msg-row.mine .cp-bubble-wrap { align-items: flex-end; }
-
-                .cp-sender {
-                    font-size: 11px;
-                    font-weight: 500;
-                    color: rgba(255,255,255,0.3);
-                    padding: 0 6px;
+                .cp-messages::-webkit-scrollbar { width: 5px; }
+                .cp-messages::-webkit-scrollbar-track { background: transparent; }
+                .cp-messages::-webkit-scrollbar-thumb {
+                    background: #374151;
+                    border-radius: 4px;
                 }
 
-                /* Bubbles — keeping original orange / green colors, now glassy */
+                /* Empty state */
+                .cp-empty {
+                    flex: 1;
+                    display: flex; flex-direction: column;
+                    align-items: center; justify-content: center;
+                    gap: 10px;
+                    color: #4b5563;
+                    font-size: 13.5px;
+                }
+
+                .cp-empty-icon { font-size: 36px; }
+
+                /* Message group */
+                .cp-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                    margin-bottom: 8px;
+                    animation: msgIn 0.2s ease both;
+                }
+
+                @keyframes msgIn {
+                    from { opacity: 0; transform: translateY(8px); }
+                    to   { opacity: 1; transform: translateY(0); }
+                }
+
+                .cp-group.mine { align-items: flex-end; }
+                .cp-group.theirs { align-items: flex-start; }
+
+                .cp-group-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    margin-bottom: 4px;
+                    padding: 0 4px;
+                }
+
+                .cp-group.mine .cp-group-header { flex-direction: row-reverse; }
+
+                .cp-group-avatar {
+                    width: 32px; height: 32px;
+                    border-radius: 50%;
+                    display: flex; align-items: center; justify-content: center;
+                    font-size: 12px; font-weight: 700;
+                    flex-shrink: 0;
+                    letter-spacing: 0;
+                }
+
+                .cp-group.mine .cp-group-avatar {
+                    border: 2px solid rgba(249,115,22,0.5);
+                }
+                .cp-group.theirs .cp-group-avatar {
+                    border: 2px solid rgba(34,197,94,0.5);
+                }
+
+                .cp-sender-name {
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: #9ca3af;
+                }
+
+                .cp-group.mine .cp-sender-name { color: #fb923c; }
+                .cp-group.theirs .cp-sender-name { color: #4ade80; }
+
+                /* Bubbles */
+                .cp-bubble-row {
+                    display: flex;
+                    align-items: flex-end;
+                    gap: 6px;
+                }
+
+                .cp-group.mine .cp-bubble-row { justify-content: flex-end; }
+
                 .cp-bubble {
-                    padding: 10px 16px;
-                    font-size: 14px;
+                    max-width: 320px;
+                    padding: 9px 14px;
+                    font-size: 13.5px;
                     line-height: 1.55;
+                    font-weight: 400;
                     word-break: break-word;
-                    backdrop-filter: blur(12px);
-                    -webkit-backdrop-filter: blur(12px);
-                }
-
-                .cp-bubble.theirs {
-                    background: rgba(34, 197, 94, 0.12);
-                    border: 1px solid rgba(34, 197, 94, 0.2);
-                    color: #d1fae5;
-                    border-radius: 4px 18px 18px 18px;
-                }
-
-                .cp-bubble.mine {
-                    background: rgba(249, 115, 22, 0.15);
-                    border: 1px solid rgba(249, 115, 22, 0.25);
-                    color: #ffedd5;
-                    border-radius: 18px 4px 18px 18px;
-                }
-
-                /* INPUT BAR */
-                .cp-input-bar {
                     position: relative;
-                    z-index: 10;
-                    padding: 14px 20px;
-                    background: rgba(255, 255, 255, 0.03);
-                    border-top: 1px solid rgba(255, 255, 255, 0.07);
-                    backdrop-filter: blur(20px);
-                    -webkit-backdrop-filter: blur(20px);
+                }
+
+                .cp-group.mine .cp-bubble {
+                    background: #ea580c;
+                    color: #fff;
+                    border-radius: 16px 4px 16px 16px;
+                    box-shadow: 0 2px 8px rgba(234,88,12,0.3);
+                }
+
+                .cp-group.theirs .cp-bubble {
+                    background: #16a34a;
+                    color: #fff;
+                    border-radius: 4px 16px 16px 16px;
+                    box-shadow: 0 2px 8px rgba(22,163,74,0.3);
+                }
+
+                .cp-bubble-time {
+                    font-size: 10px;
+                    opacity: 0.65;
+                    margin-top: 3px;
+                    display: block;
+                    text-align: right;
+                }
+
+                .cp-group.theirs .cp-bubble-time { text-align: left; }
+
+                /* ── INPUT BAR ── */
+                .cp-input-bar {
+                    flex-shrink: 0;
+                    background: #1f2937;
+                    border-top: 1px solid #374151;
+                    padding: 12px 16px;
                     display: flex;
                     align-items: center;
                     gap: 10px;
-                    flex-shrink: 0;
+                    z-index: 10;
                 }
 
                 .cp-attach-btn {
-                    width: 42px; height: 42px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: rgba(255,255,255,0.05);
-                    border: 1px solid rgba(255,255,255,0.09);
-                    border-radius: 12px;
-                    color: rgba(255,255,255,0.35);
+                    width: 40px; height: 40px;
+                    display: flex; align-items: center; justify-content: center;
+                    background: #374151;
+                    border: none;
+                    border-radius: 10px;
+                    color: #9ca3af;
                     cursor: pointer;
-                    transition: all 0.18s ease;
+                    transition: all 0.15s;
                     flex-shrink: 0;
                 }
 
                 .cp-attach-btn:hover {
-                    background: rgba(255,255,255,0.09);
-                    color: rgba(255,255,255,0.6);
+                    background: #4b5563;
+                    color: #d1d5db;
                 }
 
                 .cp-input-wrap {
                     flex: 1;
                     display: flex;
                     align-items: center;
-                    background: rgba(255,255,255,0.05);
-                    border: 1px solid rgba(255,255,255,0.09);
-                    border-radius: 14px;
-                    padding: 0 18px;
-                    transition: all 0.2s ease;
+                    background: #111827;
+                    border: 1.5px solid #374151;
+                    border-radius: 12px;
+                    padding: 0 16px;
+                    transition: border-color 0.18s, box-shadow 0.18s;
+                    min-height: 44px;
                 }
 
                 .cp-input-wrap:focus-within {
-                    border-color: rgba(249, 115, 22, 0.35);
-                    background: rgba(249, 115, 22, 0.04);
-                    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.06);
+                    border-color: #f97316;
+                    box-shadow: 0 0 0 3px rgba(249,115,22,0.1);
                 }
 
                 .cp-input {
@@ -400,87 +407,105 @@ const ChatPage = () => {
                     background: transparent;
                     border: none;
                     outline: none;
-                    padding: 13px 0;
-                    font-family: 'Outfit', sans-serif;
+                    font-family: 'Inter', sans-serif;
                     font-size: 14px;
-                    color: #f1f5f9;
-                    font-weight: 400;
+                    color: #f9fafb;
+                    padding: 11px 0;
                 }
 
-                .cp-input::placeholder { color: rgba(255,255,255,0.2); }
+                .cp-input::placeholder { color: #4b5563; }
 
                 .cp-send-btn {
                     width: 42px; height: 42px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: rgba(34, 197, 94, 0.2);
-                    border: 1px solid rgba(34, 197, 94, 0.35);
-                    border-radius: 12px;
-                    color: #4ade80;
+                    display: flex; align-items: center; justify-content: center;
+                    background: #22c55e;
+                    border: none;
+                    border-radius: 11px;
+                    color: #fff;
                     cursor: pointer;
-                    transition: all 0.18s ease;
+                    transition: all 0.18s;
                     flex-shrink: 0;
+                    box-shadow: 0 2px 10px rgba(34,197,94,0.35);
                 }
 
                 .cp-send-btn:hover {
-                    background: rgba(34, 197, 94, 0.3);
-                    border-color: rgba(34, 197, 94, 0.55);
-                    box-shadow: 0 0 18px rgba(34, 197, 94, 0.2);
-                    color: #86efac;
+                    background: #16a34a;
+                    box-shadow: 0 4px 18px rgba(34,197,94,0.45);
+                    transform: scale(1.05);
                 }
 
-                .cp-send-btn:active { transform: scale(0.95); }
+                .cp-send-btn:active { transform: scale(0.96); }
             `}</style>
 
             <div className="cp-root">
-                <div className="cp-blob cp-blob-1" />
-                <div className="cp-blob cp-blob-2" />
-                <div className="cp-blob cp-blob-3" />
 
                 {/* Header */}
                 <header className="cp-header">
                     <div className="cp-header-left">
-                        <div className="cp-header-dot" />
-                        <span className="cp-header-title">Vault</span>
-                        <div className="cp-header-badge">
-                            Room: <span>{roomId}</span>
+                        <div className="cp-header-avatar">💬</div>
+                        <div className="cp-room-info">
+                            <span className="cp-room-name">Room: {roomId}</span>
+                            <div className="cp-room-status">
+                                <div className="cp-online-dot" />
+                                Connected · Vault Chat
+                            </div>
                         </div>
                     </div>
 
                     <div className="cp-header-right">
-                        <div className="cp-user-badge">
-                            <div className="cp-user-avatar">{getInitial(currentUser)}</div>
-                            <span className="cp-user-name">{currentUser}</span>
+                        <div className="cp-user-chip">
+                            {(() => { const m = getAvatarMeta(currentUser); return (
+                                <div className="cp-user-chip-avatar" style={{background: m.bg, color: m.text}}>
+                                    {m.initials}
+                                </div>
+                            ); })()}
+                            <span className="cp-user-chip-name">{currentUser}</span>
                         </div>
                         <button className="cp-leave-btn" onClick={handleLogout}>
-                            <MdLogout size={15} />
-                            Leave
+                            <IoExitOutline size={16} />
+                            Leave Room
                         </button>
                     </div>
                 </header>
 
                 {/* Messages */}
                 <div className="cp-messages" ref={chatBoxRef}>
-                    {messages.length === 0 ? (
+                    {grouped.length === 0 ? (
                         <div className="cp-empty">
                             <div className="cp-empty-icon">💬</div>
                             <span>No messages yet — say hello!</span>
                         </div>
                     ) : (
-                        messages.map((message, index) => {
-                            const isMine = message.sender === currentUser;
+                        grouped.map((group, gi) => {
+                            const isMine = group.sender === currentUser;
                             return (
-                                <div key={index} className={`cp-msg-row ${isMine ? "mine" : ""}`}>
-                                    <div className={`cp-avatar ${isMine ? "mine" : "theirs"}`}>
-                                        {getInitial(message.sender)}
+                                <div key={gi} className={`cp-group ${isMine ? 'mine' : 'theirs'}`}>
+                                    {/* Sender row */}
+                                    <div className="cp-group-header">
+                                        {(() => { const m = getAvatarMeta(group.sender); return (
+                                            <div className="cp-group-avatar" style={{
+                                                background: m.bg, color: m.text,
+                                                border: `2px solid ${isMine ? 'rgba(249,115,22,0.5)' : 'rgba(34,197,94,0.5)'}`
+                                            }}>
+                                                {m.initials}
+                                            </div>
+                                        ); })()}
+                                        <span className="cp-sender-name">{group.sender}</span>
                                     </div>
-                                    <div className="cp-bubble-wrap">
-                                        <span className="cp-sender">{message.sender}</span>
-                                        <div className={`cp-bubble ${isMine ? "mine" : "theirs"}`}>
-                                            {message.content}
+
+                                    {/* Bubbles */}
+                                    {group.messages.map((msg, mi) => (
+                                        <div key={mi} className="cp-bubble-row">
+                                            <div className="cp-bubble">
+                                                {msg.content}
+                                                {msg.timeStamp && (
+                                                    <span className="cp-bubble-time">
+                                                        {formatTime(msg.timeStamp)}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
+                                    ))}
                                 </div>
                             );
                         })
@@ -489,25 +514,28 @@ const ChatPage = () => {
 
                 {/* Input bar */}
                 <div className="cp-input-bar">
-                    <button className="cp-attach-btn">
+                    <button className="cp-attach-btn" title="Attach file">
                         <MdAttachFile size={18} />
                     </button>
 
                     <div className="cp-input-wrap">
                         <input
+                            ref={inputRef}
                             className="cp-input"
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                             placeholder="Type your message here..."
+                            autoComplete="off"
                         />
                     </div>
 
-                    <button className="cp-send-btn" onClick={sendMessage}>
+                    <button className="cp-send-btn" onClick={sendMessage} title="Send">
                         <MdSend size={18} />
                     </button>
                 </div>
+
             </div>
         </>
     );
