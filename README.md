@@ -1,8 +1,8 @@
 # Vault Chat
 
-> Conversations shouldn't wait. I built a platform that doesn't make them.
+> Miles apart. Milliseconds away. Some vaults keep people out. This one pulls them in.
 
-A production-deployed, full-stack real-time chat application demonstrating WebSocket communication, cloud-native deployment, and clean system design — built with React, Spring Boot, MongoDB Atlas, and Docker.
+A production-grade, full-stack real-time chat application leveraging WebSockets for low-latency communication, deployed on a cloud-native architecture using React, Spring Boot, MongoDB Atlas, and Docker.
 
 🟢 **Live Demo:** [vault-app-bishwajit.vercel.app](https://vault-app-bishwajit.vercel.app)
 
