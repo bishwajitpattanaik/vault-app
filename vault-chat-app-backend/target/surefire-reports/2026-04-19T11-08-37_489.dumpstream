@@ -1,0 +1,5 @@
+# Created at 2026-04-19T11:08:38.387
+Boot Manifest-JAR contains absolute paths in classpath 'D:\vault\vault-app\vault-chat-app-backend\target\test-classes'
+Hint: <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+'other' has different root
+
