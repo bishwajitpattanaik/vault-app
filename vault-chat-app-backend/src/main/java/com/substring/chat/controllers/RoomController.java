@@ -17,7 +17,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/rooms")
 // @CrossOrigin("http://localhost:5173")
-@CrossOrigin(origins = "https://vault-app-1-vhkf.onrender.com")
+@CrossOrigin(origins = {
+        "http://localhost:5173",
+        "https://vault-app-kkmc.vercel.app"
+})
 public class RoomController {
 
     private RoomRepository roomRepository;
