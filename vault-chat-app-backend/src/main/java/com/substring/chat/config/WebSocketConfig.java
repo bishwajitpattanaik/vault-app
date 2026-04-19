@@ -23,7 +23,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/chat") // WebSocket endpoint
                 .setAllowedOrigins(
                         "http://localhost:5173",
-                        "https://vault-app-kkmc.vercel.app"
+                        "https://vault-app-bishwajit.vercel.app"
                 )
                 .withSockJS();
     }

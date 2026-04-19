@@ -19,7 +19,7 @@ import java.util.Map;
 // @CrossOrigin("http://localhost:5173")
 @CrossOrigin(origins = {
         "http://localhost:5173",
-        "https://vault-app-kkmc.vercel.app"
+        "https://vault-app-bishwajit.vercel.app"
 })
 public class RoomController {
 
